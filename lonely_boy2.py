@@ -8,19 +8,22 @@ from tqdm import tqdm
 def addOneHot(df):
     return df.join(pd.get_dummies(df))
 
+
 class BSAS:
     def __init__(self, theta=None, q=None):
         # theta: Dissimarity Threshold
         # q: Max #Clusters
         self.theta = theta; self.q = q
         self.clusters = {}; self.centroids = {}
-        
+     
+    
     def __getCentroid(self, X, Y):
         try:
             probe = Y[1]
             return np.divide(X, Y[0])
         except:
             return X
+    
     
     def __findClosestCluster(self, clusters, centroids, sample):
         centID = 0
@@ -34,13 +37,88 @@ class BSAS:
                     continue
                 cluster_population = clusters[cntID].shape
                 centroid = self.__getCentroid(centroids[cntID], cluster_population)
-
+                tmp = euclidean(centroid, sample)
                 if (tmp < minDist):
                     minDist = tmp
                     centID = cntID
         except:
             pass
         return minDist, centID
+    
+    
+     def __getEuclideanDistances(self, data, size):
+        minED = np.inf; maxED = -np.inf
+        
+        for column_i in tqdm(range(size), desc='Computing (Min/Max) Euclidean Distances...'):                
+            for column_j in range(size):
+                if (column_i == column_j):
+                    continue
+                dist = euclidean(data[:,column_i], data[:,column_j])
+                if (dist < minED):
+                    minED = dist
+                if (dist > maxED):
+                    maxED = dist
+                    
+        return minED, maxED
+    
+    
+    def __findIndexofMax(self, dct):
+        minVal = np.inf       
+        minKey = None
+        for key in dct:
+            tmp = dct[key]
+            if (tmp < minVal):
+                minVal = tmp
+                minKey = key
+        return minKey
+    
+    
+    def __findOptimalCluster(self, clusters):
+        min_cluster = np.inf
+        min_cluster2 = np.inf
+        for cluster in tqdm(clusters, desc='Finding Optimal Cluster...'):
+            if (cluster < min_cluster2 and cluster != min_cluster):
+                if(cluster < min_cluster):
+                    min_cluster2 = min_cluster
+                    min_cluster = cluster
+                else:
+                    min_cluster2 = cluster
+        return min_cluster2
+    
+    
+    def __findOptimalTheta(self, opt_cluster, clusters, theta):
+        cl_start = 0; cl_fin = 0; cl_key = None
+        found = False
+        cl_ranges = {}
+        
+        for i in range(len(clusters)):
+            if (clusters[i] == opt_cluster):
+                if (not found):
+                    cl_start = i
+                    cl_fin = i
+                    found = True
+                else:
+                    cl_fin += 1
+            else:
+                if (found):
+                    tmp = [cl_start, cl_fin, (cl_fin-cl_start)]
+                    cl_ranges[i] = tmp
+        
+        for key in cl_ranges:
+            max_range = -np.inf
+            val = cl_ranges[key][2]
+            if (val > max_range):
+                max_range = val
+                cl_key = key
+        
+        opt_theta_range = cl_ranges[cl_key]
+        theta_avg = 0
+        for i in range(opt_theta_range[0], opt_theta_range[1]+1):
+            theta_avg += theta[i]
+        
+        theta_avg = theta_avg / (opt_theta_range[1] - opt_theta_range[0] + 1)
+        return theta_avg   
+    
     
     def fit(self, data, order):
         m = 1 #Clusters/Centroids
@@ -62,9 +140,56 @@ class BSAS:
             
         self.clusters = clusters
         self.centroids = centroids
+    
+    
+    def fit_best(self, data, n_times=20, first_time=True, plot_graph=True):
+        N, l = data.shape
+        if (first_time):
+            minDist, maxDist = self.__getEuclideanDistances(data, l)
+            dists = np.save('min-max-euclidean-distances.npy', np.array([minDist, maxDist], dtype=np.float))
+        else:
+            minDist, maxDist = np.load('min-max-euclidean-distances.npy')
+
+        meanDist = (minDist + maxDist)/2
+        theta_min = 0.25 * meanDist; theta_max = 1.75 * meanDist
+        n_theta = 50
+        s = (theta_max - theta_min)/(n_theta - 1)
         
+        total_clusters = []
+        total_theta = np.arange(theta_min, theta_max+s, s)
+        for theta in tqdm(total_theta, desc=('Running BSAS...')):
+            max_clusters = -np.inf
+            for i in np.arange(n_times):
+                clf = BSAS(theta=theta,q=l)
+                order = np.random.permutation(range(l))
+                clf.fit(data, order)
+                clusters, centroids = clf.predict()
+                clustersN = len(clusters)
+                if (clustersN > max_clusters):
+                    max_clusters = clustersN
+            total_clusters = total_clusters + [max_clusters]
+        
+        if (plot_graph==True):
+            plt.plot(total_theta, total_clusters, 'b-') 
+            plt.xlabel('theta')
+            plt.ylabel('#clusters')
+            plt.title('#clusters versus theta')
+            plt.grid()
+            plt.show()
+        
+        opt_cluster = self.__findOptimalCluster(total_clusters) #print (opt_cluster)
+        opt_theta = self.__findOptimalTheta(opt_cluster, total_clusters, total_theta) #print (opt_theta)
+        
+        self.theta = opt_theta
+        self.q = opt_cluster
+        
+    
     def predict(self):
         real_centroids = {}
         for key in self.clusters:
             real_centroids[key] = self.__getCentroid(self.centroids[key], self.clusters[key].shape)
         return self.clusters, real_centroids
+    
+    
+    def specs(self):
+        return self.theta, self.q
