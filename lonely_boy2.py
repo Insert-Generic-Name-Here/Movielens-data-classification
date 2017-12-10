@@ -1,5 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib import style;  style.use('ggplot')
+from scipy.spatial.distance import euclidean
 import numpy.matlib
 import numpy as np
 from tqdm import tqdm
@@ -46,7 +48,7 @@ class BSAS:
         return minDist, centID
     
     
-     def __getEuclideanDistances(self, data, size):
+    def __getEuclideanDistances(self, data, size):
         minED = np.inf; maxED = -np.inf
         
         for column_i in tqdm(range(size), desc='Computing (Min/Max) Euclidean Distances...'):                
@@ -74,16 +76,23 @@ class BSAS:
     
     
     def __findOptimalCluster(self, clusters):
-        min_cluster = np.inf
-        min_cluster2 = np.inf
-        for cluster in tqdm(clusters, desc='Finding Optimal Cluster...'):
-            if (cluster < min_cluster2 and cluster != min_cluster):
-                if(cluster < min_cluster):
-                    min_cluster2 = min_cluster
-                    min_cluster = cluster
-                else:
-                    min_cluster2 = cluster
-        return min_cluster2
+        clusters_frq = {}
+        min_cluster = np.min(clusters)
+        for cluster in tqdm_notebook(clusters, desc='Finding Optimal Cluster...'):
+            if (cluster == min_cluster):
+                continue
+            try:
+                clusters_frq[cluster] += 1
+            except:
+                clusters_frq[cluster] = 1
+        opt_cluster = None; frq_opt_cluster = -np.inf
+        
+        for key in clusters_frq:
+            tmp = clusters_frq[key]
+            if (tmp > frq_opt_cluster):
+                frq_opt_cluster = tmp
+                opt_cluster = key
+        return opt_cluster
     
     
     def __findOptimalTheta(self, opt_cluster, clusters, theta):
