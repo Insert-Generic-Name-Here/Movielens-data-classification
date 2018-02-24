@@ -1,1 +1,0 @@
-# pattern-recognition-project-2017
